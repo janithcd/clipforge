@@ -235,11 +235,12 @@ app.post(
       ];
 
     const allowedQualities: VideoQuality[] =
-      [
-        "480",
-        "720",
-        "1080",
-      ];
+  [
+    "original",
+    "480",
+    "720",
+    "1080",
+  ];
 
     let audioBitrate:
       | AudioBitrate
@@ -268,11 +269,11 @@ app.post(
           .videoQuality as VideoQuality;
 
       videoQuality =
-        allowedQualities.includes(
-          requestedQuality
-        )
-          ? requestedQuality
-          : "720";
+  allowedQualities.includes(
+    requestedQuality
+  )
+    ? requestedQuality
+    : "original";
     }
 
     const inputPath =
@@ -303,10 +304,13 @@ app.post(
       }
 
       if (format === "mp4") {
-        console.log(
-          `Video quality: ${videoQuality}p`
-        );
-      }
+  console.log(
+    videoQuality ===
+      "original"
+      ? "Video quality: original resolution"
+      : `Video quality: ${videoQuality}p`
+  );
+}
 
       await convertMedia(
         inputPath,
