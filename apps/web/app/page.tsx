@@ -1,69 +1,167 @@
-import Image from "next/image";
+"use client";
+
+import { useState } from "react";
 
 export default function Home() {
+  const [file, setFile] = useState<File | null>(null);
+  const [converting, setConverting] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function handleConvert() {
+    if (!file) {
+      setMessage("Please select a media file.");
+      return;
+    }
+
+    try {
+      setConverting(true);
+      setMessage("Converting your file...");
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const response = await fetch(
+        "http://localhost:5000/api/convert/mp3",
+        {
+          method: "POST",
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Conversion failed");
+      }
+
+      const blob = await response.blob();
+
+      const url = window.URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.href = url;
+
+      const originalName = file.name.replace(/\.[^/.]+$/, "");
+
+      link.download = `${originalName}.mp3`;
+
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      window.URL.revokeObjectURL(url);
+
+      setMessage("Conversion completed successfully!");
+    } catch (error) {
+      console.error(error);
+
+      setMessage(
+        "Something went wrong while converting the file."
+      );
+    } finally {
+      setConverting(false);
+    }
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
+    <main className="min-h-screen bg-zinc-950 text-white">
+      <div className="mx-auto flex min-h-screen max-w-5xl flex-col items-center justify-center px-6">
+
+        <div className="mb-10 text-center">
+          <h1 className="text-5xl font-bold tracking-tight sm:text-7xl">
+            ClipForge
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+
+          <p className="mt-4 text-lg text-zinc-400">
+            Convert your media. Fast, clean and simple.
           </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
+
+        <div className="w-full max-w-2xl rounded-3xl border border-zinc-800 bg-zinc-900 p-8 shadow-2xl">
+
+          <div className="rounded-2xl border-2 border-dashed border-zinc-700 p-10 text-center">
+
+            <input
+              id="file"
+              type="file"
+              accept="video/*,audio/*"
+              className="hidden"
+              onChange={(event) => {
+                const selected =
+                  event.target.files?.[0] ?? null;
+
+                setFile(selected);
+                setMessage("");
+              }}
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+
+            <label
+              htmlFor="file"
+              className="cursor-pointer"
+            >
+              <div className="text-5xl">
+                🎬
+              </div>
+
+              <p className="mt-4 text-lg font-medium">
+                Choose a media file
+              </p>
+
+              <p className="mt-2 text-sm text-zinc-500">
+                MP4, MOV, WebM, M4A and more
+              </p>
+            </label>
+          </div>
+
+          {file && (
+            <div className="mt-6 rounded-xl bg-zinc-800 p-4">
+              <p className="font-medium">
+                {file.name}
+              </p>
+
+              <p className="mt-1 text-sm text-zinc-400">
+                {(file.size / 1024 / 1024).toFixed(2)} MB
+              </p>
+            </div>
+          )}
+
+          <div className="mt-6">
+            <label className="mb-2 block text-sm text-zinc-400">
+              Convert to
+            </label>
+
+            <select
+              className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-3 outline-none"
+              defaultValue="mp3"
+            >
+              <option value="mp3">
+                MP3 — Audio
+              </option>
+            </select>
+          </div>
+
+          <button
+            onClick={handleConvert}
+            disabled={!file || converting}
+            className="mt-6 w-full rounded-xl bg-white px-5 py-4 font-semibold text-black transition hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            Documentation
-          </a>
+            {converting
+              ? "Converting..."
+              : "Convert to MP3"}
+          </button>
+
+          {message && (
+            <p className="mt-5 text-center text-sm text-zinc-400">
+              {message}
+            </p>
+          )}
+
         </div>
-      </main>
-    </div>
+
+        <p className="mt-8 text-sm text-zinc-600">
+          Your files are processed temporarily and removed
+          after conversion.
+        </p>
+
+      </div>
+    </main>
   );
 }
