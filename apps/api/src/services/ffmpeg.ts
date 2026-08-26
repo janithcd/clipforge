@@ -20,6 +20,10 @@ interface ConversionOptions {
   format: OutputFormat;
   audioBitrate?: AudioBitrate;
   videoQuality?: VideoQuality;
+
+  onProgress?: (
+    progress: number
+  ) => void;
 }
 
 export interface MediaProbe {
@@ -293,7 +297,7 @@ export async function convertMedia(
             metadata.height
           ) {
             console.log(
-              `Scaling video from ${metadata.width}x${metadata.height} to approximately ${targetHeight}p`
+              `Scaling from ${metadata.width}x${metadata.height} to approximately ${targetHeight}p`
             );
 
             args.push(
@@ -302,7 +306,7 @@ export async function convertMedia(
             );
           } else {
             console.log(
-              `Skipping ${targetHeight}p scaling because source height is only ${metadata.height}px. Upscaling is disabled.`
+              `Skipping ${targetHeight}p scaling. Source is ${metadata.height}px high and upscaling is disabled.`
             );
           }
         } else {
@@ -332,6 +336,16 @@ export async function convertMedia(
         );
       }
 
+      /*
+       * Ask FFmpeg to emit
+       * machine-readable progress.
+       */
+      args.push(
+        "-progress",
+        "pipe:1",
+        "-nostats"
+      );
+
       args.push(
         outputPath
       );
@@ -355,6 +369,112 @@ export async function convertMedia(
       let errorOutput =
         "";
 
+      let progressBuffer =
+        "";
+
+      /*
+       * FFmpeg progress output
+       * comes through stdout.
+       */
+      ffmpeg.stdout.on(
+        "data",
+        (data) => {
+          progressBuffer +=
+            data.toString();
+
+          const lines =
+            progressBuffer.split(
+              /\r?\n/
+            );
+
+          progressBuffer =
+            lines.pop() ?? "";
+
+          for (
+            const line
+            of lines
+          ) {
+            const separator =
+              line.indexOf(
+                "="
+              );
+
+            if (
+              separator === -1
+            ) {
+              continue;
+            }
+
+            const key =
+              line.slice(
+                0,
+                separator
+              );
+
+            const value =
+              line.slice(
+                separator + 1
+              );
+
+            if (
+              key ===
+                "out_time_us" &&
+              metadata.duration
+            ) {
+              const microseconds =
+                Number(
+                  value
+                );
+
+              if (
+                !Number.isNaN(
+                  microseconds
+                )
+              ) {
+                const seconds =
+                  microseconds /
+                  1_000_000;
+
+                const percentage =
+                  Math.min(
+                    99,
+                    Math.max(
+                      0,
+                      Math.round(
+                        (
+                          seconds /
+                          metadata.duration
+                        ) *
+                          100
+                      )
+                    )
+                  );
+
+                options
+                  .onProgress?.(
+                    percentage
+                  );
+              }
+            }
+
+            if (
+              key ===
+                "progress" &&
+              value === "end"
+            ) {
+              options
+                .onProgress?.(
+                  100
+                );
+            }
+          }
+        }
+      );
+
+      /*
+       * Normal FFmpeg logs
+       * still arrive here.
+       */
       ffmpeg.stderr.on(
         "data",
         (data) => {
@@ -383,6 +503,11 @@ export async function convertMedia(
           if (
             code === 0
           ) {
+            options
+              .onProgress?.(
+                100
+              );
+
             resolve();
 
             return;
