@@ -1,7 +1,7 @@
 import express, {
+  type NextFunction,
   type Request,
   type Response,
-  type NextFunction,
 } from "express";
 
 import cors from "cors";
@@ -26,10 +26,10 @@ app.use(cors());
 app.use(express.json());
 
 /*
- * ----------------------------------------------------
- * Storage configuration
- * ----------------------------------------------------
- */
+|--------------------------------------------------------------------------
+| Storage
+|--------------------------------------------------------------------------
+*/
 
 const storageRoot = path.join(
   process.cwd(),
@@ -46,47 +46,57 @@ const outputDirectory = path.join(
   "output"
 );
 
-fs.mkdirSync(uploadDirectory, {
-  recursive: true,
-});
+fs.mkdirSync(
+  uploadDirectory,
+  {
+    recursive: true,
+  }
+);
 
-fs.mkdirSync(outputDirectory, {
-  recursive: true,
-});
+fs.mkdirSync(
+  outputDirectory,
+  {
+    recursive: true,
+  }
+);
 
 /*
- * ----------------------------------------------------
- * Multer configuration
- * ----------------------------------------------------
- */
+|--------------------------------------------------------------------------
+| Multer
+|--------------------------------------------------------------------------
+*/
 
-const storage = multer.diskStorage({
-  destination: (
-    _req,
-    _file,
-    callback
-  ) => {
-    callback(
-      null,
-      uploadDirectory
-    );
-  },
+const storage =
+  multer.diskStorage({
+    destination: (
+      _req,
+      _file,
+      callback
+    ) => {
+      callback(
+        null,
+        uploadDirectory
+      );
+    },
 
-  filename: (
-    _req,
-    file,
-    callback
-  ) => {
-    const extension = path
-      .extname(file.originalname)
-      .toLowerCase();
+    filename: (
+      _req,
+      file,
+      callback
+    ) => {
+      const extension =
+        path
+          .extname(
+            file.originalname
+          )
+          .toLowerCase();
 
-    callback(
-      null,
-      `${randomUUID()}${extension}`
-    );
-  },
-});
+      callback(
+        null,
+        `${randomUUID()}${extension}`
+      );
+    },
+  });
 
 const upload = multer({
   storage,
@@ -117,7 +127,10 @@ const upload = multer({
       "audio/ogg",
       "audio/webm",
 
-      // curl.exe may use this
+      /*
+       * curl.exe sometimes
+       * uses this MIME type.
+       */
       "application/octet-stream",
     ];
 
@@ -135,12 +148,16 @@ const upload = multer({
       ".ogg",
     ];
 
-    const extension = path
-      .extname(file.originalname)
-      .toLowerCase();
+    const extension =
+      path
+        .extname(
+          file.originalname
+        )
+        .toLowerCase();
 
     const mimeType =
-      file.mimetype.toLowerCase();
+      file.mimetype
+        .toLowerCase();
 
     const validMimeType =
       allowedMimeTypes.includes(
@@ -173,10 +190,10 @@ const upload = multer({
 });
 
 /*
- * ----------------------------------------------------
- * Conversion jobs
- * ----------------------------------------------------
- */
+|--------------------------------------------------------------------------
+| Conversion Jobs
+|--------------------------------------------------------------------------
+*/
 
 type JobStatus =
   | "processing"
@@ -201,10 +218,27 @@ interface ConversionJob {
   error?: string;
 }
 
-const jobs = new Map<
-  string,
-  ConversionJob
->();
+/*
+ * Explicit route params type.
+ *
+ * This fixes the TypeScript error
+ * around req.params.id.
+ */
+interface JobRouteParams {
+  id: string;
+}
+
+const jobs =
+  new Map<
+    string,
+    ConversionJob
+  >();
+
+/*
+|--------------------------------------------------------------------------
+| Utility functions
+|--------------------------------------------------------------------------
+*/
 
 function removeFile(
   filePath: string
@@ -225,51 +259,54 @@ function removeFile(
   );
 }
 
-/*
- * Remove abandoned jobs after a period
- * so memory/storage does not grow forever.
- */
 function scheduleJobCleanup(
   jobId: string,
   delay =
     30 * 60 * 1000
 ) {
-  const timer = setTimeout(
-    () => {
-      const job =
-        jobs.get(jobId);
+  const timer =
+    setTimeout(
+      () => {
+        const job =
+          jobs.get(
+            jobId
+          );
 
-      if (!job) {
-        return;
-      }
+        if (!job) {
+          return;
+        }
 
-      removeFile(
-        job.inputPath
-      );
+        removeFile(
+          job.inputPath
+        );
 
-      removeFile(
-        job.outputPath
-      );
+        removeFile(
+          job.outputPath
+        );
 
-      jobs.delete(
-        jobId
-      );
+        jobs.delete(
+          jobId
+        );
 
-      console.log(
-        `Cleaned expired job: ${jobId}`
-      );
-    },
-    delay
-  );
+        console.log(
+          `Cleaned expired job: ${jobId}`
+        );
+      },
+      delay
+    );
 
+  /*
+   * Do not keep Node alive
+   * just because cleanup is scheduled.
+   */
   timer.unref();
 }
 
 /*
- * ----------------------------------------------------
- * Basic API routes
- * ----------------------------------------------------
- */
+|--------------------------------------------------------------------------
+| Basic Routes
+|--------------------------------------------------------------------------
+*/
 
 app.get(
   "/",
@@ -277,7 +314,7 @@ app.get(
     _req: Request,
     res: Response
   ) => {
-    return res.json({
+    res.json({
       name:
         "ClipForge API",
 
@@ -296,7 +333,7 @@ app.get(
     _req: Request,
     res: Response
   ) => {
-    return res.json({
+    res.json({
       success:
         true,
 
@@ -307,12 +344,13 @@ app.get(
 );
 
 /*
- * ----------------------------------------------------
- * Create conversion job
- *
- * POST /api/jobs
- * ----------------------------------------------------
- */
+|--------------------------------------------------------------------------
+| Create Conversion Job
+|--------------------------------------------------------------------------
+|
+| POST /api/jobs
+|
+*/
 
 app.post(
   "/api/jobs",
@@ -326,7 +364,7 @@ app.post(
     res: Response
   ) => {
     if (!req.file) {
-      return res
+      res
         .status(400)
         .json({
           success:
@@ -335,10 +373,12 @@ app.post(
           message:
             "No media file was uploaded.",
         });
+
+      return;
     }
 
     /*
-     * Validate format
+     * Validate output format.
      */
 
     const format =
@@ -346,14 +386,16 @@ app.post(
         .format as OutputFormat;
 
     if (
-      format !== "mp3" &&
-      format !== "mp4"
+      format !==
+        "mp3" &&
+      format !==
+        "mp4"
     ) {
       removeFile(
         req.file.path
       );
 
-      return res
+      res
         .status(400)
         .json({
           success:
@@ -362,10 +404,12 @@ app.post(
           message:
             "Invalid output format.",
         });
+
+      return;
     }
 
     /*
-     * MP3 quality validation
+     * Supported MP3 bitrates.
      */
 
     const allowedBitrates:
@@ -377,7 +421,7 @@ app.post(
       ];
 
     /*
-     * MP4 quality validation
+     * Supported MP4 qualities.
      */
 
     const allowedQualities:
@@ -396,6 +440,10 @@ app.post(
       | VideoQuality
       | undefined;
 
+    /*
+     * Validate MP3 bitrate.
+     */
+
     if (
       format === "mp3"
     ) {
@@ -410,6 +458,10 @@ app.post(
           ? requestedBitrate
           : "192k";
     }
+
+    /*
+     * Validate video quality.
+     */
 
     if (
       format === "mp4"
@@ -427,7 +479,7 @@ app.post(
     }
 
     /*
-     * Create job
+     * Generate job ID.
      */
 
     const jobId =
@@ -446,6 +498,10 @@ app.post(
       path.parse(
         req.file.originalname
       ).name;
+
+    /*
+     * Create job record.
+     */
 
     const job:
       ConversionJob = {
@@ -472,6 +528,10 @@ app.post(
     jobs.set(
       jobId,
       job
+    );
+
+    console.log(
+      "----------------------------------------"
     );
 
     console.log(
@@ -506,8 +566,13 @@ app.post(
     }
 
     /*
-     * Immediately return the
-     * job ID to the frontend.
+     * IMPORTANT:
+     *
+     * Respond immediately.
+     *
+     * Browser now receives
+     * the job ID while FFmpeg
+     * continues processing.
      */
 
     res
@@ -520,8 +585,7 @@ app.post(
       });
 
     /*
-     * Begin conversion after
-     * response has been sent.
+     * Start FFmpeg conversion.
      */
 
     void convertMedia(
@@ -540,9 +604,7 @@ app.post(
               jobId
             );
 
-          if (
-            !currentJob
-          ) {
+          if (!currentJob) {
             return;
           }
 
@@ -562,9 +624,7 @@ app.post(
               jobId
             );
 
-          if (
-            !currentJob
-          ) {
+          if (!currentJob) {
             return;
           }
 
@@ -575,7 +635,7 @@ app.post(
             100;
 
           /*
-           * Original upload is
+           * Uploaded source is
            * no longer required.
            */
 
@@ -588,8 +648,9 @@ app.post(
           );
 
           /*
-           * If user never downloads
-           * the result, clean it later.
+           * If the user never
+           * downloads the output,
+           * automatically clean it.
            */
 
           scheduleJobCleanup(
@@ -608,9 +669,7 @@ app.post(
               jobId
             );
 
-          if (
-            !currentJob
-          ) {
+          if (!currentJob) {
             return;
           }
 
@@ -640,9 +699,9 @@ app.post(
           );
 
           /*
-           * Keep failed job around
-           * briefly so frontend can
-           * read the error message.
+           * Keep failed status
+           * temporarily so the
+           * frontend can read it.
            */
 
           scheduleJobCleanup(
@@ -657,27 +716,40 @@ app.post(
 );
 
 /*
- * ----------------------------------------------------
- * Get conversion status
- *
- * GET /api/jobs/:id
- * ----------------------------------------------------
- */
+|--------------------------------------------------------------------------
+| Get Job Status
+|--------------------------------------------------------------------------
+|
+| GET /api/jobs/:id
+|
+*/
 
 app.get(
   "/api/jobs/:id",
 
   (
-    req: Request,
-    res: Response
+    req:
+      Request<JobRouteParams>,
+
+    res:
+      Response
   ) => {
+    /*
+     * Because JobRouteParams explicitly
+     * defines id as string, this no longer
+     * produces the req.params.id error.
+     */
+
+    const jobId =
+      req.params.id;
+
     const job =
       jobs.get(
-        req.params.id
+        jobId
       );
 
     if (!job) {
-      return res
+      res
         .status(404)
         .json({
           success:
@@ -686,9 +758,11 @@ app.get(
           message:
             "Conversion job not found.",
         });
+
+      return;
     }
 
-    return res.json({
+    res.json({
       success:
         true,
 
@@ -713,27 +787,34 @@ app.get(
 );
 
 /*
- * ----------------------------------------------------
- * Download converted media
- *
- * GET /api/jobs/:id/download
- * ----------------------------------------------------
- */
+|--------------------------------------------------------------------------
+| Download Completed Job
+|--------------------------------------------------------------------------
+|
+| GET /api/jobs/:id/download
+|
+*/
 
 app.get(
   "/api/jobs/:id/download",
 
   (
-    req: Request,
-    res: Response
+    req:
+      Request<JobRouteParams>,
+
+    res:
+      Response
   ) => {
+    const jobId =
+      req.params.id;
+
     const job =
       jobs.get(
-        req.params.id
+        jobId
       );
 
     if (!job) {
-      return res
+      res
         .status(404)
         .json({
           success:
@@ -742,13 +823,19 @@ app.get(
           message:
             "Conversion job not found.",
         });
+
+      return;
     }
+
+    /*
+     * Job failed.
+     */
 
     if (
       job.status ===
       "failed"
     ) {
-      return res
+      res
         .status(409)
         .json({
           success:
@@ -758,13 +845,19 @@ app.get(
             job.error ??
             "Conversion failed.",
         });
+
+      return;
     }
+
+    /*
+     * Job still processing.
+     */
 
     if (
       job.status !==
       "completed"
     ) {
-      return res
+      res
         .status(409)
         .json({
           success:
@@ -773,7 +866,13 @@ app.get(
           message:
             "Conversion is not complete yet.",
         });
+
+      return;
     }
+
+    /*
+     * Make sure output still exists.
+     */
 
     if (
       !fs.existsSync(
@@ -784,7 +883,7 @@ app.get(
         job.id
       );
 
-      return res
+      res
         .status(404)
         .json({
           success:
@@ -793,20 +892,22 @@ app.get(
           message:
             "Converted file is no longer available.",
         });
+
+      return;
     }
 
     console.log(
-      `Starting download for job: ${job.id}`
+      `Starting download: ${job.id}`
     );
 
-    return res.download(
+    res.download(
       job.outputPath,
       job.downloadName,
 
       (error) => {
         if (error) {
           console.error(
-            `Download error for job ${job.id}:`,
+            `Download error for ${job.id}:`,
             error
           );
 
@@ -814,13 +915,11 @@ app.get(
         }
 
         console.log(
-          `Download finished: ${job.id}`
+          `Download completed: ${job.id}`
         );
 
         /*
-         * Conversion output is
-         * temporary, so remove it
-         * once download succeeds.
+         * Output file is temporary.
          */
 
         removeFile(
@@ -836,12 +935,13 @@ app.get(
 );
 
 /*
- * ----------------------------------------------------
- * Global upload / request error handler
- *
- * Keep this AFTER all API routes.
- * ----------------------------------------------------
- */
+|--------------------------------------------------------------------------
+| Error Handler
+|--------------------------------------------------------------------------
+|
+| Must remain AFTER the routes.
+|
+*/
 
 app.use(
   (
@@ -863,7 +963,7 @@ app.use(
         error.code ===
         "LIMIT_FILE_SIZE"
       ) {
-        return res
+        res
           .status(413)
           .json({
             success:
@@ -872,9 +972,11 @@ app.use(
             message:
               "File is too large. Maximum upload size is 500 MB.",
           });
+
+        return;
       }
 
-      return res
+      res
         .status(400)
         .json({
           success:
@@ -883,9 +985,11 @@ app.use(
           message:
             error.message,
         });
+
+      return;
     }
 
-    return res
+    res
       .status(400)
       .json({
         success:
@@ -899,10 +1003,10 @@ app.use(
 );
 
 /*
- * ----------------------------------------------------
- * Start server
- * ----------------------------------------------------
- */
+|--------------------------------------------------------------------------
+| Start API
+|--------------------------------------------------------------------------
+*/
 
 app.listen(
   PORT,
