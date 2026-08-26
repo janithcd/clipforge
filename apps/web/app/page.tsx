@@ -1,15 +1,11 @@
 "use client";
 
 import {
+  useEffect,
   useRef,
   useState,
+  type DragEvent,
 } from "react";
-
-/*
-|--------------------------------------------------------------------------
-| Types
-|--------------------------------------------------------------------------
-*/
 
 type OutputFormat =
   | "mp3"
@@ -61,12 +57,6 @@ interface JobStatusResponse {
   };
 }
 
-/*
-|--------------------------------------------------------------------------
-| Supported video extensions
-|--------------------------------------------------------------------------
-*/
-
 const VIDEO_EXTENSIONS = [
   ".mp4",
   ".mov",
@@ -75,32 +65,66 @@ const VIDEO_EXTENSIONS = [
   ".mkv",
 ];
 
-/*
-|--------------------------------------------------------------------------
-| Helpers
-|--------------------------------------------------------------------------
-*/
+const AUDIO_EXTENSIONS = [
+  ".mp3",
+  ".wav",
+  ".m4a",
+  ".aac",
+  ".ogg",
+];
+
+const MAX_FILE_SIZE =
+  500 * 1024 * 1024;
+
+function hasExtension(
+  file: File,
+  extensions: string[]
+) {
+  const name =
+    file.name.toLowerCase();
+
+  return extensions.some(
+    (extension) =>
+      name.endsWith(
+        extension
+      )
+  );
+}
 
 function isVideoFile(
   file: File
 ) {
-  if (
+  return (
     file.type.startsWith(
       "video/"
+    ) ||
+    hasExtension(
+      file,
+      VIDEO_EXTENSIONS
     )
-  ) {
-    return true;
-  }
+  );
+}
 
-  const lowerName =
-    file.name
-      .toLowerCase();
+function isAudioFile(
+  file: File
+) {
+  return (
+    file.type.startsWith(
+      "audio/"
+    ) ||
+    hasExtension(
+      file,
+      AUDIO_EXTENSIONS
+    )
+  );
+}
 
-  return VIDEO_EXTENSIONS.some(
-    (extension) =>
-      lowerName.endsWith(
-        extension
-      )
+function isSupportedMedia(
+  file: File
+) {
+  return (
+    isVideoFile(file) ||
+    isAudioFile(file)
   );
 }
 
@@ -117,28 +141,22 @@ function formatDuration(
 
   const hours =
     Math.floor(
-      seconds /
-        3600
+      seconds / 3600
     );
 
   const minutes =
     Math.floor(
       (
-        seconds %
-        3600
-      ) /
-        60
+        seconds % 3600
+      ) / 60
     );
 
   const remainingSeconds =
     Math.floor(
-      seconds %
-        60
+      seconds % 60
     );
 
-  if (
-    hours > 0
-  ) {
+  if (hours > 0) {
     return `${hours}:${minutes
       .toString()
       .padStart(
@@ -158,6 +176,19 @@ function formatDuration(
       2,
       "0"
     )}`;
+}
+
+function formatFileSize(
+  bytes: number
+) {
+  const megabytes =
+    bytes /
+    1024 /
+    1024;
+
+  return `${megabytes.toFixed(
+    2
+  )} MB`;
 }
 
 function readVideoMetadata(
@@ -234,12 +265,6 @@ function sleep(
   );
 }
 
-/*
-|--------------------------------------------------------------------------
-| Upload media with real upload progress
-|--------------------------------------------------------------------------
-*/
-
 function uploadJob(
   formData: FormData,
 
@@ -262,10 +287,6 @@ function uploadJob(
 
       xhr.responseType =
         "json";
-
-      /*
-       * Browser upload progress.
-       */
 
       xhr.upload.onprogress =
         (
@@ -291,11 +312,6 @@ function uploadJob(
           );
         };
 
-      /*
-       * Upload completed and
-       * API returned the job ID.
-       */
-
       xhr.onload =
         () => {
           const response =
@@ -304,10 +320,8 @@ function uploadJob(
               | null;
 
           if (
-            xhr.status >=
-              200 &&
-            xhr.status <
-              300 &&
+            xhr.status >= 200 &&
+            xhr.status < 300 &&
             response
           ) {
             resolve(
@@ -319,8 +333,7 @@ function uploadJob(
 
           reject(
             new Error(
-              response
-                ?.message ??
+              response?.message ??
                 "Upload failed."
             )
           );
@@ -351,15 +364,14 @@ function uploadJob(
   );
 }
 
-/*
-|--------------------------------------------------------------------------
-| Page
-|--------------------------------------------------------------------------
-*/
-
 export default function Home() {
   const fileInputRef =
     useRef<HTMLInputElement>(
+      null
+    );
+
+  const previewUrlRef =
+    useRef<string | null>(
       null
     );
 
@@ -370,6 +382,26 @@ export default function Home() {
     useState<File | null>(
       null
     );
+
+  const [
+    previewUrl,
+    setPreviewUrl,
+  ] =
+    useState<string | null>(
+      null
+    );
+
+  const [
+    previewError,
+    setPreviewError,
+  ] =
+    useState(false);
+
+  const [
+    dragging,
+    setDragging,
+  ] =
+    useState(false);
 
   const [
     metadata,
@@ -407,17 +439,13 @@ export default function Home() {
     converting,
     setConverting,
   ] =
-    useState(
-      false
-    );
+    useState(false);
 
   const [
     message,
     setMessage,
   ] =
-    useState(
-      ""
-    );
+    useState("");
 
   const [
     stage,
@@ -431,23 +459,49 @@ export default function Home() {
     uploadProgress,
     setUploadProgress,
   ] =
-    useState(
-      0
-    );
+    useState(0);
 
   const [
     processingProgress,
     setProcessingProgress,
   ] =
-    useState(
-      0
+    useState(0);
+
+  useEffect(
+    () => {
+      return () => {
+        if (
+          previewUrlRef.current
+        ) {
+          URL.revokeObjectURL(
+            previewUrlRef.current
+          );
+        }
+      };
+    },
+    []
+  );
+
+  function clearPreview() {
+    if (
+      previewUrlRef.current
+    ) {
+      URL.revokeObjectURL(
+        previewUrlRef.current
+      );
+
+      previewUrlRef.current =
+        null;
+    }
+
+    setPreviewUrl(
+      null
     );
 
-  /*
-  |--------------------------------------------------------------------------
-  | Reset conversion state
-  |--------------------------------------------------------------------------
-  */
+    setPreviewError(
+      false
+    );
+  }
 
   function resetProgress() {
     setStage(
@@ -463,18 +517,14 @@ export default function Home() {
     );
   }
 
-  /*
-  |--------------------------------------------------------------------------
-  | File selection
-  |--------------------------------------------------------------------------
-  */
-
   async function handleFile(
     selected:
       | File
       | null
   ) {
     resetProgress();
+
+    clearPreview();
 
     setMetadata(
       null
@@ -503,18 +553,29 @@ export default function Home() {
       return;
     }
 
-    /*
-     * Frontend size check.
-     */
+    if (
+      !isSupportedMedia(
+        selected
+      )
+    ) {
+      setFile(
+        null
+      );
 
-    const maximumSize =
-      500 *
-      1024 *
-      1024;
+      setStage(
+        "error"
+      );
+
+      setMessage(
+        "Unsupported file. Please choose a video or audio file."
+      );
+
+      return;
+    }
 
     if (
       selected.size >
-      maximumSize
+      MAX_FILE_SIZE
     ) {
       setFile(
         null
@@ -528,13 +589,6 @@ export default function Home() {
         "File is too large. Maximum upload size is 500 MB."
       );
 
-      if (
-        fileInputRef.current
-      ) {
-        fileInputRef.current.value =
-          "";
-      }
-
       return;
     }
 
@@ -542,10 +596,17 @@ export default function Home() {
       selected
     );
 
-    /*
-     * Browser metadata preview
-     * for video files.
-     */
+    const url =
+      URL.createObjectURL(
+        selected
+      );
+
+    previewUrlRef.current =
+      url;
+
+    setPreviewUrl(
+      url
+    );
 
     if (
       isVideoFile(
@@ -564,13 +625,6 @@ export default function Home() {
       } catch (
         error
       ) {
-        /*
-         * This isn't fatal.
-         *
-         * FFprobe on the backend
-         * can still inspect the file.
-         */
-
         console.error(
           error
         );
@@ -580,8 +634,8 @@ export default function Home() {
     }
 
     /*
-     * Audio-only files cannot
-     * be converted to MP4 yet.
+     * Audio-only media currently
+     * supports MP3 output.
      */
 
     setFormat(
@@ -589,11 +643,62 @@ export default function Home() {
     );
   }
 
-  /*
-  |--------------------------------------------------------------------------
-  | Available quality choices
-  |--------------------------------------------------------------------------
-  */
+  function handleDragOver(
+    event:
+      DragEvent<HTMLDivElement>
+  ) {
+    event.preventDefault();
+
+    if (
+      converting
+    ) {
+      return;
+    }
+
+    setDragging(
+      true
+    );
+  }
+
+  function handleDragLeave(
+    event:
+      DragEvent<HTMLDivElement>
+  ) {
+    event.preventDefault();
+
+    setDragging(
+      false
+    );
+  }
+
+  function handleDrop(
+    event:
+      DragEvent<HTMLDivElement>
+  ) {
+    event.preventDefault();
+
+    setDragging(
+      false
+    );
+
+    if (
+      converting
+    ) {
+      return;
+    }
+
+    const droppedFile =
+      event.dataTransfer
+        .files?.[0];
+
+    if (
+      droppedFile
+    ) {
+      void handleFile(
+        droppedFile
+      );
+    }
+  }
 
   const availableVideoQualities =
     [
@@ -655,23 +760,12 @@ export default function Home() {
           return true;
         }
 
-        /*
-         * Only offer a resolution
-         * lower than the source.
-         */
-
         return (
           quality.height <
           metadata.height
         );
       }
     );
-
-  /*
-  |--------------------------------------------------------------------------
-  | Convert
-  |--------------------------------------------------------------------------
-  */
 
   async function handleConvert() {
     if (!file) {
@@ -702,10 +796,6 @@ export default function Home() {
       setMessage(
         "Uploading media..."
       );
-
-      /*
-       * Build multipart request.
-       */
 
       const formData =
         new FormData();
@@ -740,11 +830,6 @@ export default function Home() {
         );
       }
 
-      /*
-       * Stage 1:
-       * Upload.
-       */
-
       const uploadResult =
         await uploadJob(
           formData,
@@ -761,11 +846,6 @@ export default function Home() {
       setUploadProgress(
         100
       );
-
-      /*
-       * Stage 2:
-       * FFmpeg processing.
-       */
 
       setStage(
         "processing"
@@ -845,11 +925,6 @@ export default function Home() {
         );
       }
 
-      /*
-       * Stage 3:
-       * Complete.
-       */
-
       setProcessingProgress(
         100
       );
@@ -861,14 +936,6 @@ export default function Home() {
       setMessage(
         "Conversion complete. Your download is starting..."
       );
-
-      /*
-       * Download finished media.
-       *
-       * Content-Disposition from
-       * Express provides the
-       * original output filename.
-       */
 
       const downloadLink =
         document.createElement(
@@ -912,12 +979,6 @@ export default function Home() {
     }
   }
 
-  /*
-  |--------------------------------------------------------------------------
-  | UI
-  |--------------------------------------------------------------------------
-  */
-
   return (
     <main className="min-h-screen bg-zinc-950 text-white">
 
@@ -942,13 +1003,37 @@ export default function Home() {
 
         </div>
 
-        {/* Converter */}
-
         <div className="w-full max-w-2xl rounded-3xl border border-zinc-800 bg-zinc-900 p-8 shadow-2xl">
 
-          {/* File upload */}
+          {/* Drag and drop */}
 
-          <div className="rounded-2xl border-2 border-dashed border-zinc-700 p-10 text-center transition hover:border-zinc-500">
+          <div
+            onDragEnter={
+              handleDragOver
+            }
+
+            onDragOver={
+              handleDragOver
+            }
+
+            onDragLeave={
+              handleDragLeave
+            }
+
+            onDrop={
+              handleDrop
+            }
+
+            className={`rounded-2xl border-2 border-dashed p-10 text-center transition ${
+              dragging
+                ? "border-white bg-zinc-800"
+                : "border-zinc-700 hover:border-zinc-500"
+            } ${
+              converting
+                ? "cursor-not-allowed opacity-50"
+                : ""
+            }`}
+          >
 
             <input
               ref={
@@ -959,7 +1044,7 @@ export default function Home() {
 
               type="file"
 
-              accept="video/*,audio/*"
+              accept="video/*,audio/*,.mkv,.m4a"
 
               className="hidden"
 
@@ -978,123 +1063,215 @@ export default function Home() {
               }}
             />
 
+            <div className="text-5xl">
+              {dragging
+                ? "📥"
+                : "🎬"}
+            </div>
+
+            <p className="mt-4 text-lg font-medium">
+              {dragging
+                ? "Drop your file here"
+                : "Drag & drop your media"}
+            </p>
+
+            <p className="mt-2 text-sm text-zinc-500">
+              or
+            </p>
+
             <label
               htmlFor="file"
 
-              className={
+              className={`mt-4 inline-block rounded-lg border border-zinc-700 px-5 py-2.5 text-sm font-medium transition ${
                 converting
-                  ? "cursor-not-allowed opacity-50"
-                  : "cursor-pointer"
-              }
+                  ? "cursor-not-allowed"
+                  : "cursor-pointer hover:border-zinc-500 hover:bg-zinc-800"
+              }`}
             >
-
-              <div className="text-5xl">
-                🎬
-              </div>
-
-              <p className="mt-4 text-lg font-medium">
-                Choose a media file
-              </p>
-
-              <p className="mt-2 text-sm text-zinc-500">
-                Video or audio,
-                up to 500 MB
-              </p>
-
+              Browse Files
             </label>
+
+            <p className="mt-4 text-xs text-zinc-600">
+              MP4, MOV, WebM,
+              AVI, MKV, MP3,
+              WAV, M4A, AAC and OGG
+            </p>
+
+            <p className="mt-1 text-xs text-zinc-600">
+              Maximum file size:
+              500 MB
+            </p>
 
           </div>
 
-          {/* Selected file */}
+          {/* Selected media */}
 
           {file && (
-            <div className="mt-6 rounded-xl bg-zinc-800 p-5">
+            <div className="mt-6 overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950">
 
-              <div className="flex items-center justify-between gap-4">
+              {/* Preview */}
 
-                <div className="min-w-0">
+              {previewUrl && (
+                <div className="bg-black">
 
-                  <p className="truncate font-medium">
-                    {file.name}
-                  </p>
+                  {isVideoFile(
+                    file
+                  ) ? (
+                    <video
+                      key={
+                        previewUrl
+                      }
 
-                  <p className="mt-1 text-sm text-zinc-400">
-                    {(
-                      file.size /
-                      1024 /
-                      1024
-                    ).toFixed(
-                      2
-                    )}{" "}
-                    MB
-                  </p>
+                      src={
+                        previewUrl
+                      }
+
+                      controls
+
+                      preload="metadata"
+
+                      onError={() => {
+                        setPreviewError(
+                          true
+                        );
+                      }}
+
+                      className="max-h-80 w-full object-contain"
+                    />
+                  ) : (
+                    <div className="p-8">
+
+                      <div className="mb-5 text-center text-5xl">
+                        🎵
+                      </div>
+
+                      <audio
+                        key={
+                          previewUrl
+                        }
+
+                        src={
+                          previewUrl
+                        }
+
+                        controls
+
+                        preload="metadata"
+
+                        onError={() => {
+                          setPreviewError(
+                            true
+                          );
+                        }}
+
+                        className="w-full"
+                      />
+
+                    </div>
+                  )}
 
                 </div>
+              )}
 
-                <button
-                  type="button"
+              {previewError && (
+                <div className="border-b border-zinc-800 p-4 text-center text-sm text-zinc-500">
+                  Your browser cannot preview this codec,
+                  but ClipForge may still be able to convert it.
+                </div>
+              )}
 
-                  disabled={
-                    converting
-                  }
+              {/* File information */}
 
-                  onClick={() => {
-                    void handleFile(
-                      null
-                    );
-                  }}
+              <div className="p-5">
 
-                  className="shrink-0 text-sm text-zinc-400 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Remove
-                </button>
+                <div className="flex items-start justify-between gap-4">
 
-              </div>
+                  <div className="min-w-0">
 
-              {/* Video metadata */}
-
-              {metadata && (
-                <div className="mt-4 grid grid-cols-2 gap-3 border-t border-zinc-700 pt-4">
-
-                  <div>
-
-                    <p className="text-xs uppercase tracking-wide text-zinc-500">
-                      Resolution
+                    <p className="truncate font-medium">
+                      {file.name}
                     </p>
 
-                    <p className="mt-1 text-sm font-medium">
-                      {
-                        metadata.width
-                      }
-                      ×
-                      {
-                        metadata.height
-                      }
-                    </p>
-
-                  </div>
-
-                  <div>
-
-                    <p className="text-xs uppercase tracking-wide text-zinc-500">
-                      Duration
-                    </p>
-
-                    <p className="mt-1 text-sm font-medium">
-                      {formatDuration(
-                        metadata.duration
+                    <p className="mt-1 text-sm text-zinc-400">
+                      {formatFileSize(
+                        file.size
                       )}
                     </p>
 
                   </div>
 
+                  <button
+                    type="button"
+
+                    disabled={
+                      converting
+                    }
+
+                    onClick={() => {
+                      void handleFile(
+                        null
+                      );
+                    }}
+
+                    className="shrink-0 text-sm text-zinc-400 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Remove
+                  </button>
+
                 </div>
-              )}
+
+                {metadata && (
+                  <div className="mt-5 grid grid-cols-2 gap-4 border-t border-zinc-800 pt-5 sm:grid-cols-3">
+
+                    <div>
+
+                      <p className="text-xs uppercase tracking-wide text-zinc-500">
+                        Resolution
+                      </p>
+
+                      <p className="mt-1 text-sm font-medium">
+                        {metadata.width}
+                        ×
+                        {metadata.height}
+                      </p>
+
+                    </div>
+
+                    <div>
+
+                      <p className="text-xs uppercase tracking-wide text-zinc-500">
+                        Duration
+                      </p>
+
+                      <p className="mt-1 text-sm font-medium">
+                        {formatDuration(
+                          metadata.duration
+                        )}
+                      </p>
+
+                    </div>
+
+                    <div>
+
+                      <p className="text-xs uppercase tracking-wide text-zinc-500">
+                        Type
+                      </p>
+
+                      <p className="mt-1 text-sm font-medium">
+                        Video
+                      </p>
+
+                    </div>
+
+                  </div>
+                )}
+
+              </div>
 
             </div>
           )}
 
-          {/* Format */}
+          {/* Output format */}
 
           <div className="mt-6">
 
@@ -1157,7 +1334,7 @@ export default function Home() {
 
           </div>
 
-          {/* MP3 quality */}
+          {/* Audio quality */}
 
           {format ===
             "mp3" && (
@@ -1211,7 +1388,7 @@ export default function Home() {
             </div>
           )}
 
-          {/* MP4 quality */}
+          {/* Video quality */}
 
           {format ===
             "mp4" && (
@@ -1268,10 +1445,9 @@ export default function Home() {
 
               {metadata && (
                 <p className="mt-2 text-xs text-zinc-500">
-                  Only resolutions
-                  below the source
-                  are offered to
-                  prevent unnecessary
+                  Only resolutions below
+                  the source are offered
+                  to prevent unnecessary
                   upscaling.
                 </p>
               )}
@@ -1285,8 +1461,6 @@ export default function Home() {
             "idle" && (
             <div className="mt-7 space-y-5 rounded-2xl border border-zinc-800 bg-zinc-950 p-5">
 
-              {/* Upload progress */}
-
               <div>
 
                 <div className="mb-2 flex items-center justify-between text-sm">
@@ -1296,10 +1470,7 @@ export default function Home() {
                   </span>
 
                   <span className="font-medium">
-                    {
-                      uploadProgress
-                    }
-                    %
+                    {uploadProgress}%
                   </span>
 
                 </div>
@@ -1318,8 +1489,6 @@ export default function Home() {
                 </div>
 
               </div>
-
-              {/* Processing progress */}
 
               <div>
 
@@ -1353,13 +1522,29 @@ export default function Home() {
 
               </div>
 
-              {/* Status */}
-
               {stage ===
                 "completed" && (
-                <p className="text-center text-sm font-medium">
-                  ✓ Conversion complete
-                </p>
+                <div className="text-center">
+
+                  <p className="text-sm font-medium">
+                    ✓ Conversion complete
+                  </p>
+
+                  <button
+                    type="button"
+
+                    onClick={() => {
+                      void handleFile(
+                        null
+                      );
+                    }}
+
+                    className="mt-3 text-sm text-zinc-400 underline underline-offset-4 hover:text-white"
+                  >
+                    Convert another file
+                  </button>
+
+                </div>
               )}
 
               {stage ===
@@ -1372,7 +1557,7 @@ export default function Home() {
             </div>
           )}
 
-          {/* Convert button */}
+          {/* Convert */}
 
           <button
             type="button"
@@ -1401,8 +1586,6 @@ export default function Home() {
 
           </button>
 
-          {/* Message */}
-
           {message && (
             <p
               className={
@@ -1418,12 +1601,9 @@ export default function Home() {
 
         </div>
 
-        {/* Footer */}
-
         <p className="mt-8 text-center text-sm text-zinc-600">
-          Files are processed
-          temporarily and removed
-          after conversion.
+          Files are processed temporarily
+          and removed after conversion.
         </p>
 
       </div>
